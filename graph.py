@@ -82,8 +82,8 @@ def optimize_graph(logger=None, verbose=False):
             # 以下代码是句向量的生成方法，可以理解为做了一个卷积的操作，但是没有把结果相加, 卷积核是input_mask
             pooled = masked_reduce_mean(encoder_layer, input_mask)
             pooled = tf.identity(pooled, 'final_encodes')
-
-            output_tensors = [pooled]
+            pooled_1 = tf.identity(encoder_layer, 'final_encodes2')
+            output_tensors = [pooled, pooled_1]
             tmp_g = tf.get_default_graph().as_graph_def()
 
         # allow_soft_placement:自动选择运行设备
