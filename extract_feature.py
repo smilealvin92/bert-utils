@@ -122,106 +122,6 @@ class BertVector:
                 'input_type_ids': [f.input_type_ids for f in features]
             }
 
-    def input_fn_builder(self, features, seq_length):
-        """Creates an `input_fn` closure to be passed to Estimator."""
-
-        all_unique_ids = []
-        all_input_ids = []
-        all_input_mask = []
-        all_input_type_ids = []
-
-        for feature in features:
-            all_unique_ids.append(feature.unique_id)
-            all_input_ids.append(feature.input_ids)
-            all_input_mask.append(feature.input_mask)
-            all_input_type_ids.append(feature.input_type_ids)
-
-        def input_fn(params):
-            """The actual input function."""
-            batch_size = params["batch_size"]
-
-            num_examples = len(features)
-
-            # This is for demo purposes and does NOT scale to large data sets. We do
-            # not use Dataset.from_generator() because that uses tf.py_func which is
-            # not TPU compatible. The right way to load data is with TFRecordReader.
-            d = tf.data.Dataset.from_tensor_slices({
-                "unique_ids":
-                    tf.constant(all_unique_ids, shape=[num_examples], dtype=tf.int32),
-                "input_ids":
-                    tf.constant(
-                        all_input_ids, shape=[num_examples, seq_length],
-                        dtype=tf.int32),
-                "input_mask":
-                    tf.constant(
-                        all_input_mask,
-                        shape=[num_examples, seq_length],
-                        dtype=tf.int32),
-                "input_type_ids":
-                    tf.constant(
-                        all_input_type_ids,
-                        shape=[num_examples, seq_length],
-                        dtype=tf.int32),
-            })
-
-            d = d.batch(batch_size=batch_size, drop_remainder=False)
-            return d
-
-        return input_fn
-
-    def model_fn_builder(self, bert_config, init_checkpoint, layer_indexes):
-        """Returns `model_fn` closure for TPUEstimator."""
-
-        def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
-            """The `model_fn` for TPUEstimator."""
-
-            unique_ids = features["unique_ids"]
-            input_ids = features["input_ids"]
-            input_mask = features["input_mask"]
-            input_type_ids = features["input_type_ids"]
-
-            jit_scope = tf.contrib.compiler.jit.experimental_jit_scope
-
-            with jit_scope():
-                model = modeling.BertModel(
-                    config=bert_config,
-                    is_training=False,
-                    input_ids=input_ids,
-                    input_mask=input_mask,
-                    token_type_ids=input_type_ids)
-
-                if mode != tf.estimator.ModeKeys.PREDICT:
-                    raise ValueError("Only PREDICT modes are supported: %s" % (mode))
-
-                tvars = tf.trainable_variables()
-
-                (assignment_map, initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(tvars,
-                                                                                                           init_checkpoint)
-
-                tf.logging.info("**** Trainable Variables ****")
-                for var in tvars:
-                    init_string = ""
-                    if var.name in initialized_variable_names:
-                        init_string = ", *INIT_FROM_CKPT*"
-                    tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
-                                    init_string)
-
-                all_layers = model.get_all_encoder_layers()
-
-                predictions = {
-                    "unique_id": unique_ids,
-                }
-
-                for (i, layer_index) in enumerate(layer_indexes):
-                    predictions["layer_output_%d" % i] = all_layers[layer_index]
-
-                from tensorflow.python.estimator.model_fn import EstimatorSpec
-
-                output_spec = EstimatorSpec(mode=mode, predictions=predictions)
-                return output_spec
-
-        return model_fn
-
     def convert_examples_to_features(self, seq_length, tokenizer):
         """Loads a data file into a list of `InputBatch`s."""
 
@@ -297,21 +197,6 @@ class BertVector:
                 input_mask=input_mask,
                 input_type_ids=input_type_ids)
 
-    def _truncate_seq_pair(self, tokens_a, tokens_b, max_length):
-        """Truncates a sequence pair in place to the maximum length."""
-
-        # This is a simple heuristic which will always truncate the longer sequence
-        # one token at a time. This makes more sense than truncating an equal percent
-        # of tokens from each, since if one sequence is very short then each token
-        # that's truncated likely contains more information than a longer sequence.
-        while True:
-            total_length = len(tokens_a) + len(tokens_b)
-            if total_length <= max_length:
-                break
-            if len(tokens_a) > len(tokens_b):
-                tokens_a.pop()
-            else:
-                tokens_b.pop()
 
     @staticmethod
     def _to_example(sentences):
@@ -344,11 +229,13 @@ def get_word_embedding(sentence, sentence_embedding):
     word_list = jieba.lcut(sentence)
     print(word_list)
     char_index = 0
+    # 去掉开头的[CLS]
+    sentence_embedding = np.squeeze(sentence_embedding[:, 1:, :])
     for word in word_list:
         word_length = len(word)
-        word_embedding = np.zeros(sentence_embedding.shape[2])
+        word_embedding = np.zeros(sentence_embedding.shape[1])
         for embedding_index in range(char_index, char_index+word_length):
-            word_embedding += np.squeeze(sentence_embedding[:, embedding_index, :])
+            word_embedding += np.squeeze(sentence_embedding[embedding_index, :])
         word_embedding /= word_length
         word_embedding_list[word] = word_embedding
         char_index += word_length
@@ -358,14 +245,15 @@ def get_word_embedding(sentence, sentence_embedding):
 def main():
     bert = BertVector()
     # question = input('question: ')
-    # sentence_list = ["小米手机用起来速度还可以哦！", "我的苹果手机现在是越来越卡了。"]
-    sentence_list = ["大米很容易煮的！", "小米手机用起来速度还可以哦！"]
-    sentence_list = ["三星是一个大的手机品牌。", "小米手机用起来速度还可以哦！"]
+    sentence_list = ["小米手机用起来速度还可以哦！", "我的苹果手机现在是越来越卡了。"]
+    # sentence_list = ["小米含有大量的维生素E，是大米的4.8倍；其蛋白质优于大米、小麦。除了健胃消食，常吃小米，对女性的益处大，有滋阴养颜的作用。", "据凤凰科技报道，《福布斯》刊文称，研究人员在对小米手机加载的一款浏览器进行研究时发现，浏览器会收集并分享用户隐私信息。据悉，浏览器跟踪用户几乎全部上网行为，其中包括曾经访问的网站、在谷歌网站上输入的搜索关键字、手机信息流中的所有内容。即使在“无痕”模式下，浏览器也会跟踪用户隐私信息。报道称，小米手机收集的所有信息，会发送到它在俄罗斯、新加坡设立的服务器中。"]
+    # sentence_list = ["三星是一个大的手机品牌。", "小米手机用起来速度还可以哦！"]
+    # sentence_list = ["玉米很容易煮的！", "这个季节产的小米不好吃。"]
     sentences_embedding = [bert.encode([x]) for x in sentence_list]
-    # sentence_embedding_dict = dict(zip(sentence_list, sentences_embedding))
+    sentence_list = [x[:bert.max_seq_length-2] if len(x) > bert.max_seq_length-2 else x for x in sentence_list]
     # for sentence, sentence_embedding in sentence_embedding_dict:
-    v_1 = get_word_embedding(sentence_list[0], sentences_embedding[0])["三星"]
-    v_2 = get_word_embedding(sentence_list[1], sentences_embedding[1])["小米"]
+    v_1 = get_word_embedding(sentence_list[0], sentences_embedding[0])["小米"]
+    v_2 = get_word_embedding(sentence_list[1], sentences_embedding[1])["苹果"]
     print("cosine distance: ", np.dot(v_1, v_2)/(np.linalg.norm(v_1)*(np.linalg.norm(v_2))))
     # v = bert.encode(["小米用起来还可以哦！", "我的苹果手机现在是越来越卡了。"])
     # print(str(v))
