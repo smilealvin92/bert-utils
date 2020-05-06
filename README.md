@@ -1,3 +1,6 @@
+# 词向量获取
+在原作者开源的基础上，增加一个extract_feature.py文件，从倒数第二层提取每一个token的向量，然后对每个词的所有的token的向量取平均，得到该词的词向量，但是结果并不太如人意。
+
 # bert-utils
 
 本文基于Google开源的[BERT](https://github.com/google-research/bert)代码进行了进一步的简化，方便生成句向量与做文本分类
