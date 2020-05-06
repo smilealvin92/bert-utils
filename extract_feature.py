@@ -254,7 +254,8 @@ def main():
     # for sentence, sentence_embedding in sentence_embedding_dict:
     v_1 = get_word_embedding(sentence_list[0], sentences_embedding[0])["小米"]
     v_2 = get_word_embedding(sentence_list[1], sentences_embedding[1])["苹果"]
-    print("cosine distance: ", np.dot(v_1, v_2)/(np.linalg.norm(v_1)*(np.linalg.norm(v_2))))
+    # 余弦相似度，值越大，越相似
+    print("cosine similarity: ", np.dot(v_1, v_2)/(np.linalg.norm(v_1)*(np.linalg.norm(v_2))))
     # v = bert.encode(["小米用起来还可以哦！", "我的苹果手机现在是越来越卡了。"])
     # print(str(v))
 
